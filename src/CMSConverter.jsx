@@ -9,9 +9,8 @@ import { Button } from "@/components/ui/button";
 function cleanHtml(html) {
   if (!html) return "";
   return html
-    .replace(/\\n/g, " ")
-    .replace(/[\n\r]+/g, " ")
-    .replace(/\s{2,}/g, " ")
+    .replace(/\\n/g, "\n")
+    .replace(/[ \t]{2,}/g, " ")
     .trim();
 }
 
@@ -19,65 +18,8 @@ function cleanHtml(html) {
 function extractFaqs(container) {
   const faqs = [];
 
-  // Normalize FAQ headings → always H3
-  const allHeadings = Array.from(container.querySelectorAll("h2, h4, h5, h6"));
-
-  allHeadings.forEach((el) => {
-    const text = el.textContent?.trim().toLowerCase();
-    if (text?.startsWith("q")) {
-      const h3 = document.createElement("h3");
-      h3.innerHTML = el.innerHTML;
-      el.replaceWith(h3);
-    }
-  });
-
-  // 1. Standard <h3> + <p>
-  const h3s = Array.from(container.querySelectorAll("h3"));
-
-  for (let i = 0; i < h3s.length; i++) {
-    const h3 = h3s[i];
-    const next = h3.nextElementSibling;
-
-    if (next && next.tagName === "P") {
-      if (faqs.length < 11) {
-        faqs.push({
-          question: h3.textContent || "",
-          answer: next.innerHTML || "",
-        });
-      }
-
-      h3.remove();
-      next.remove();
-    }
-  }
-
-  // 2. Detect <p><strong>Q...</strong>Answer</p>
-  const paragraphs = Array.from(container.querySelectorAll("p"));
-
-  paragraphs.forEach((p) => {
-    const strong = p.querySelector("strong");
-
-    if (strong && strong.textContent?.trim().toLowerCase().startsWith("q")) {
-      if (faqs.length < 11) {
-        const question = strong.textContent.replace(/q\.?/i, "").trim();
-
-        // remove strong from clone to get answer
-        const clone = p.cloneNode(true);
-        const strongClone = clone.querySelector("strong");
-        strongClone?.remove();
-
-        const answer = clone.innerHTML.trim();
-
-        faqs.push({ question, answer });
-      }
-
-      p.remove();
-    }
-  });
-
-  // 3. Marker-based FAQs (--faqs--)
+  // Strictly Marker-based FAQs (--faqs--)
   const allNodes = Array.from(container.children);
-
   let markerEl = null;
 
   for (const el of allNodes) {
@@ -90,10 +32,12 @@ function extractFaqs(container) {
 
   if (markerEl) {
     let current = markerEl.nextElementSibling;
-    const faqItems = [];
+    let currentFaq = null;
 
     while (current) {
       const text = current.textContent?.trim().toLowerCase() || "";
+      
+      // Stop if we reach the end marker
       if (text === "--faqs ends" || text === "--faqs ends--") {
         const endMarker = current;
         current = null;
@@ -101,29 +45,28 @@ function extractFaqs(container) {
         break;
       }
 
-      if (current.tagName === "P" && text) {
-        faqItems.push(current);
+      // Identify Question: starts with a heading OR ends with a question mark
+      const isQuestion = /H[1-6]/.test(current.tagName) || current.textContent?.trim().endsWith("?");
+
+      if (isQuestion) {
+        if (faqs.length < 11) {
+          currentFaq = {
+            question: current.textContent?.trim() || "",
+            answer: ""
+          };
+          faqs.push(currentFaq);
+        } else {
+          currentFaq = null;
+        }
+      } else if (currentFaq) {
+        // Accumulate everything else (paragraphs, lists, etc.) into the answer
+        currentFaq.answer += current.outerHTML;
       }
+
+      const toRemove = current;
       current = current.nextElementSibling;
+      toRemove.remove();
     }
-
-    for (let i = 0; i < faqItems.length; i += 2) {
-      const q = faqItems[i];
-      const a = faqItems[i + 1];
-
-      if (!q || !a) break;
-
-      if (faqs.length < 11) {
-        faqs.push({
-          question: q.textContent?.trim() || "",
-          answer: a.innerHTML?.trim() || "",
-        });
-      }
-
-      q.remove();
-      a.remove();
-    }
-
     markerEl.remove();
   }
 
@@ -241,9 +184,39 @@ function parseHtml(html) {
   const container = doc.body;
 
   // Replace --banner-- shortcut with actual HTML
-  const bannerRegex = /(?:<p>\s*)?--banner--(?:\s*<\/p>)?/gi;
-  const bannerHtml = `<div class="insurance-banner" onclick="handleFloatingButtonClick()"><img src="https://cms-img.coverfox.com/red-car-cta-85x48.svg" alt="car" class="banner-icon" ><div class="banner-content"><span class="banner-message">Get your Car Insured online with Coverfox in minutes!</span></div><span class="banner-button">View Plans</span></div>`;
-  container.innerHTML = container.innerHTML.replace(bannerRegex, bannerHtml);
+  // Supports --banner--, --banner-car--, --banner-bike--, etc.
+  const bannerRegex = /(?:<p>\s*)?--banner-?[\w-]*--(?:\s*<\/p>)?/gi;
+  
+  const getBannerHtml = (match) => {
+    const isBike = match.includes('bike');
+    
+    if (isBike) {
+      return `
+<div class="insurance-banner" onclick="handleFloatingButtonClick('bike')">
+  <img src="https://cms-img.coverfox.com/yamaha-removebg-preview.png" alt="bike" class="banner-icon" >
+  <div class="banner-content">
+    <span class="banner-message">Buy or Renew Bike Insurance - Premium Starting @ ₹457*</span>
+  </div>
+  <span class="banner-button">
+    Buy Now
+  </span>
+</div>
+`;
+    }
+    
+    // Default Car structure
+    return `
+<div class='insurance-banner' onclick="handleFloatingButtonClick('car')">
+  <img src='https://cms-img.coverfox.com/red-car-cta-85x48.svg' alt='car' class='banner-icon'>
+  <div class='banner-content'>
+    <span class='banner-message'>Get your Car Insured online with Coverfox in minutes!</span>
+  </div>
+  <span class='banner-button'>View Plans</span>
+</div><br/>
+`;
+  };
+
+  container.innerHTML = container.innerHTML.replace(bannerRegex, (match) => getBannerHtml(match));
 
   // Remove existing JSON-LD schemas to prevent duplicate stacking when re-pasting
   container.querySelectorAll("script[type='application/ld+json']").forEach(s => s.remove());
@@ -273,13 +246,7 @@ function parseHtml(html) {
 
   const faqs = extractFaqs(container);
 
-  let content = cleanHtml(container.innerHTML)
-    .replace(/class="([^"]*)"/g, "class='$1'")
-    .replace(/data-cms-include="([^"]*)"/g, "data-cms-include='$1'")
-    .replace(/data-cms-namespace="([^"]*)"/g, "data-cms-namespace='$1'");
-
   const faqCount = Math.min(faqs.length, 11);
-
   const faqSection = `<h2><b>Frequently Asked Questions</b></h2>${Array.from(
     { length: faqCount },
     (_, i) =>
@@ -288,7 +255,19 @@ function parseHtml(html) {
       }'></div>`
   ).join("")}`;
 
-  content = cleanHtml(content + faqSection);
+  const placementRegex = /(?:<p>\s*)?--faqs-output--(?:\s*<\/p>)?/gi;
+  let finalHtml = "";
+  
+  if (container.innerHTML.match(placementRegex)) {
+    finalHtml = container.innerHTML.replace(placementRegex, faqSection);
+  } else {
+    finalHtml = container.innerHTML + faqSection;
+  }
+
+  let content = cleanHtml(finalHtml)
+    .replace(/class="([^"]*)"/g, "class='$1'")
+    .replace(/data-cms-include="([^"]*)"/g, "data-cms-include='$1'")
+    .replace(/data-cms-namespace="([^"]*)"/g, "data-cms-namespace='$1'");
 
   return { title, intro, content, faqs };
 }
@@ -434,7 +413,15 @@ function HtmlEditor({ html, faqs, schemas, onChange }) {
   const addBanner = (e) => {
     e.preventDefault();
     if (activeTab !== "visual") return;
-    const bannerHtml = `<div class="insurance-banner" onclick="handleFloatingButtonClick()"><img src="https://cms-img.coverfox.com/red-car-cta-85x48.svg" alt="car" class="banner-icon" ><div class="banner-content"><span class="banner-message">Get your Car Insured online with Coverfox in minutes!</span></div><span class="banner-button">View Plans</span></div><br/>`;
+    const bannerHtml = `
+<div class='insurance-banner' onclick="handleFloatingButtonClick()">
+  <img src='https://cms-img.coverfox.com/red-car-cta-85x48.svg' alt='car' class='banner-icon'>
+  <div class='banner-content'>
+    <span class='banner-message'>Get your Car Insured online with Coverfox in minutes!</span>
+  </div>
+  <span class='banner-button'>View Plans</span>
+</div><br/>
+`;
     
     if (ref.current) {
       ref.current.focus();
@@ -700,12 +687,19 @@ export default function CMSConverter() {
 
     const tableStyles = `.idv-table-wrapper{max-width:78%;margin:16px auto;font-family:Inter,system-ui,-apple-system,'Segoe UI',Roboto,Arial,sans-serif;border:1px solid #e6eaf0;border-radius:8px;overflow:hidden;background:#fff}.idv-table{width:100%;border-collapse:collapse;table-layout:fixed}.idv-table thead th{background:#eef2ff;font-weight:700;font-size:16px;padding:12px 14px;color:#122433;border-bottom:1px solid #e6eaf0}.idv-table tbody td{padding:10px 14px;font-size:16px;color:#1f2937;border-bottom:1px solid #f0f2f5;word-break:break-word;text-align:center}.idv-table tbody tr:nth-child(even){background:#fafafa}`;
 
-    const newStyles = `.art-content p,.art-content .art-content__intro>*,h3,h4,.art-content ol>li{font-family:Inter,system-ui,-apple-system,'Segoe UI',Roboto,Arial,sans-serif !important;color:#1f2937 !important;font-size:16px !important;letter-spacing:0.019em;word-spacing:1px}h1{font-family:Inter,system-ui,-apple-system,'Segoe UI',Roboto,Arial,sans-serif !important;font-size:32px !important}h2{font-family:Inter,system-ui,-apple-system,'Segoe UI',Roboto,Arial,sans-serif !important;font-size:23px !important}.cfHeroBG__category{font-family:Inter,system-ui,-apple-system,'Segoe UI',Roboto,Arial,sans-serif !important}.faq__question h3{font-size:18px;line-height:2px;margin:12px 0;word-break:break-word}@media (max-width:600px){.faq__question h3{font-size:23px;line-height:23px}}@media screen and (min-width:768px){div[data-cms-namespace='bannerCTA'] .banner-container.cta-banner-v2{width:690px}}.insurance-banner{display:flex;align-items:center;justify-content:space-between;background:rgb(49,68,81);color:#fff;padding:0 16px;border-radius:8px;font-family:sans-serif;max-width:690px;width:100%;margin:0 auto;box-sizing:border-box;flex-wrap:wrap;gap:3px}.banner-icon{width:136px;height:56px;margin-bottom:-2px !important;margin-left:-24px}.banner-content{flex:1;min-width:0}.banner-message{line-height:1.4;word-break:break-word;font-size:17px;margin-left:-1px}.banner-button{background:rgb(251,100,27);border:none;color:#fff;padding:8px 14px;border-radius:16px;font-weight:bold;text-decoration:none;font-size:15px;white-space:nowrap;flex-shrink:0;transition:background .3s ease}.banner-button:hover{background:rgb(230,85,20)}@media (max-width:768px){.insurance-banner{flex-direction:column;align-items:flex-start;text-align:left}.banner-content{width:100%}.banner-button{width:100%;text-align:center;font-size:13px;padding:8px}}@media (max-width:480px){.banner-message{font-size:14px}.insurance-banner{flex-direction:column;align-items:flex-start;text-align:left;width:100%;padding-bottom:14px;margin-top:0}.banner-content{margin-top:-45px}img.banner-icon{width:55% !important;padding-top:39px;height:97px;margin-bottom:-38px !important}.banner-icon{width:28px;height:28px}.banner-message{display:inline-grid;font-size:19px;margin-top:0;padding-left:163px;padding-top:5px}.banner-button{margin-left:154px;width:181px;font-size:14px;padding:7px 35px}}`;
+    const newStyles = `.art-content p,.art-content .art-content__intro>*,h3,h4,.art-content ol>li{font-family:Inter,system-ui,-apple-system,'Segoe UI',Roboto,Arial,sans-serif !important;color:#1f2937 !important;font-size:16px !important;letter-spacing:0.019em;word-spacing:1px}h1{font-family:Inter,system-ui,-apple-system,'Segoe UI',Roboto,Arial,sans-serif !important;font-size:32px !important}h2{font-family:Inter,system-ui,-apple-system,'Segoe UI',Roboto,Arial,sans-serif !important;font-size:23px !important}.cfHeroBG__category{font-family:Inter,system-ui,-apple-system,'Segoe UI',Roboto,Arial,sans-serif !important}.faq__question h3{font-size:18px;line-height:2px;margin:12px 0;word-break:break-word}@media (max-width:600px){.faq__question h3{font-size:23px;line-height:23px}}@media screen and (min-width:768px){div[data-cms-namespace='bannerCTA'] .banner-container.cta-banner-v2{width:690px}}.insurance-banner{display:flex;align-items:center;justify-content:space-between;background:rgb(49,68,81);color:#fff;padding:0 16px;border-radius:8px;font-family:sans-serif;max-width:690px;width:100%;margin:0 auto;box-sizing:border-box;flex-wrap:wrap;gap:12px}.banner-icon{width:91px;height:71px;margin-bottom:-2px !important}.banner-content{flex:1;min-width:0}.banner-message{font-size:16px;line-height:1.4;word-break:break-word;margin-left:0}.banner-button{background:rgb(251,100,27);border:none;color:#fff;padding:8px 14px;border-radius:16px;font-weight:bold;text-decoration:none;font-size:15px;white-space:nowrap;flex-shrink:0;transition:background .3s ease}.banner-button:hover{background:rgb(230,85,20)}@media (max-width:768px){.insurance-banner{flex-direction:column;align-items:flex-start;text-align:left}.banner-content{width:100%}.banner-button{width:100%;text-align:center;font-size:13px;padding:8px}}@media (max-width:480px){.banner-message{font-size:14px}.insurance-banner{flex-direction:column;align-items:flex-start;text-align:left;width:100%;padding-bottom:10px;margin-top:-5px}.banner-content{margin-top:-118px}img.banner-icon{width:42% !important;padding-top:-8px;height:1%;margin-bottom:7px !important}.banner-icon{width:28px;height:28px}.banner-message{display:inline-grid;font-size:19px;margin-top:0;padding-left:161px}.banner-button{margin-left:154px;width:181px;font-size:14px;padding:7px 35px}}`;
 
     const hasTable = parsed.content.includes("idv-table");
     const baseCss = `p{text-align:justify}${newStyles}${hasTable ? tableStyles : ""}`;
 
-    const defaultHeadExtras = `<style>${baseCss}</style><script>function handleFloatingButtonClick(){if(window.widgetOpenOverlay){window.widgetOpenOverlay('bike')}}</script>`;
+    const carScript = `<script>document.addEventListener("click",function(e){const banner=e.target.closest(".insurance-banner[data-click='handleFloatingButtonClick']");if(banner){if(window.handleFloatingButtonClick){window.handleFloatingButtonClick('car')}else if(window.widgetOpenOverlay){window.widgetOpenOverlay('car')}}});</script>`;
+    const bikeScript = `<script>document.addEventListener('DOMContentLoaded', function () { const ctaButtons = document.querySelectorAll('.buttons_CTA1'); ctaButtons.forEach(function (button) { button.style.cursor = 'pointer'; button.addEventListener('click', function () { if (window.widgetOpenOverlay) { window.widgetOpenOverlay('bike'); } }); }); });</script>`;
+
+    let activeScripts = `<style>${baseCss}</style><script>function handleFloatingButtonClick(type){if(window.widgetOpenOverlay){window.widgetOpenOverlay(type || 'car')}}</script>`;
+    if (parsed.content.includes("data-click='handleFloatingButtonClick'")) activeScripts += carScript;
+    if (parsed.content.includes("buttons_CTA1")) activeScripts += bikeScript;
+
+    const defaultHeadExtras = activeScripts;
 
     // Prepare Title (strip any existing H1 to avoid doubling, then wrap)
     let rawTitle = cleanHtml(form.article_title || parsed.title);
@@ -824,9 +818,10 @@ export default function CMSConverter() {
               <div className="space-y-2">
                 <h3 className="font-bold text-blue-800">🚀 Shortcuts</h3>
                 <ul className="space-y-2 list-none p-0">
-                  <li className="flex gap-2"><code className="bg-white px-1 border border-blue-200 text-blue-600 rounded">--banner--</code> <span className="text-gray-600">Injects the Red Car Insurance Banner automatically.</span></li>
-                  <li className="flex gap-2"><code className="bg-white px-1 border border-blue-200 text-blue-600 rounded">--faqs--</code> <span className="text-gray-600">Start of a manual FAQ block extraction section.</span></li>
-                  <li className="flex gap-2"><code className="bg-white px-1 border border-blue-200 text-blue-600 rounded">--faqs ends--</code> <span className="text-gray-600">End of a manual FAQ block extraction section.</span></li>
+                  <li className="flex gap-2"><code className="bg-white px-1 border border-blue-200 text-blue-600 rounded">--banner_car--</code> <span className="text-gray-600">Injects the wrapper-styled Car Insurance Banner.</span></li>
+                  <li className="flex gap-2"><code className="bg-white px-1 border border-blue-200 text-blue-600 rounded">--banner_bike--</code> <span className="text-gray-600">Injects the buttons_CTA1 Bike Insurance Banner.</span></li>
+                  <li className="flex gap-2"><code className="bg-white px-1 border border-blue-200 text-blue-600 rounded">--faqs--</code> <span className="text-gray-600">Start manual FAQ extraction block.</span></li>
+                  <li className="flex gap-2"><code className="bg-white px-1 border border-blue-200 text-blue-600 rounded">--faqs ends--</code> <span className="text-gray-600">End manual FAQ extraction block.</span></li>
                 </ul>
               </div>
               <div className="space-y-2">

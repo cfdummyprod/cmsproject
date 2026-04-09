@@ -9,9 +9,8 @@ import { Button } from "@/components/ui/button";
 function cleanHtml(html: string): string {
   if (!html) return "";
   return html
-    .replace(/\\n/g, " ")
-    .replace(/[\n\r]+/g, " ")
-    .replace(/\s{2,}/g, " ")
+    .replace(/\\n/g, "\n")
+    .replace(/[ \t]{2,}/g, " ")
     .trim();
 }
 
@@ -24,111 +23,55 @@ interface FAQItem {
 function extractFaqs(container: HTMLElement): FAQItem[] {
   const faqs: FAQItem[] = [];
 
-  // ---------------------------
-  // Normalize FAQ headings → always H3
-  // ---------------------------
-  const allHeadings = Array.from(container.querySelectorAll("h2, h4, h5, h6"));
-
-  allHeadings.forEach((el) => {
-    const text = el.textContent?.trim().toLowerCase();
-    if (text?.startsWith("q")) {
-      const h3 = document.createElement("h3");
-      h3.innerHTML = el.innerHTML;
-      el.replaceWith(h3);
-    }
-  });
-
-  // ---------------------------
-  // 1. Standard <h3> + <p>
-  // ---------------------------
-  const h3s = Array.from(container.querySelectorAll("h3"));
-
-  for (let i = 0; i < h3s.length; i++) {
-    const h3 = h3s[i];
-    const next = h3.nextElementSibling;
-
-    if (next && next.tagName === "P") {
-      if (faqs.length < 11) {
-        faqs.push({
-          question: h3.textContent || "",
-          answer: next.innerHTML || "",
-        });
-      }
-
-      h3.remove();
-      next.remove();
-    }
-  }
-
-  // ---------------------------
-  // 2. Detect <p><strong>Q...</strong>Answer</p>
-  // ---------------------------
-  const paragraphs = Array.from(container.querySelectorAll("p"));
-
-  paragraphs.forEach((p) => {
-    const strong = p.querySelector("strong");
-
-    if (strong && strong.textContent?.trim().toLowerCase().startsWith("q")) {
-      if (faqs.length < 11) {
-        const question = strong.textContent.replace(/q\.?/i, "").trim();
-
-        // remove strong from clone to get answer
-        const clone = p.cloneNode(true) as HTMLElement;
-        const strongClone = clone.querySelector("strong");
-        strongClone?.remove();
-
-        const answer = clone.innerHTML.trim();
-
-        faqs.push({ question, answer });
-      }
-
-      p.remove();
-    }
-  });
-
-  // ---------------------------
-  // 3. Marker-based FAQs (--faqs--)
-  // ---------------------------
+  // Strictly Marker-based FAQs (--faqs--)
   const allNodes = Array.from(container.children);
-
   let markerEl: HTMLElement | null = null;
 
   for (const el of allNodes) {
     const text = el.textContent?.trim().toLowerCase();
     if (text === "--faqs--" || text?.includes("--faqs--")) {
-      markerEl = el;
+      markerEl = el as HTMLElement;
       break;
     }
   }
 
   if (markerEl) {
     let current = markerEl.nextElementSibling;
-    const faqItems: HTMLElement[] = [];
+    let currentFaq: FAQItem | null = null;
 
     while (current) {
-      if (current.tagName === "P" && current.textContent?.trim()) {
-        faqItems.push(current as HTMLElement);
+      const text = current.textContent?.trim().toLowerCase() || "";
+      
+      // Stop if we reach the end marker
+      if (text === "--faqs ends" || text === "--faqs ends--") {
+        const endMarker = current;
+        current = null;
+        endMarker.remove();
+        break;
       }
+
+      // Identify Question: starts with a heading OR ends with a question mark
+      const isQuestion = /H[1-6]/.test(current.tagName) || current.textContent?.trim().endsWith("?");
+
+      if (isQuestion) {
+        if (faqs.length < 11) {
+          currentFaq = {
+            question: current.textContent?.trim() || "",
+            answer: ""
+          };
+          faqs.push(currentFaq);
+        } else {
+          currentFaq = null;
+        }
+      } else if (currentFaq) {
+        // Accumulate everything else (paragraphs, lists, etc.) into the answer
+        currentFaq.answer += current.outerHTML;
+      }
+
+      const toRemove = current;
       current = current.nextElementSibling;
+      toRemove.remove();
     }
-
-    for (let i = 0; i < faqItems.length; i += 2) {
-      const q = faqItems[i];
-      const a = faqItems[i + 1];
-
-      if (!q || !a) break;
-
-      if (faqs.length < 11) {
-        faqs.push({
-          question: q.textContent?.trim() || "",
-          answer: a.innerHTML?.trim() || "",
-        });
-      }
-
-      q.remove();
-      a.remove();
-    }
-
     markerEl.remove();
   }
 
@@ -359,16 +302,60 @@ export default function CMSConverter() {
     });
   };
 
+  const getBannerHtml = (isBike: boolean) => {
+    if (isBike) {
+      return `
+<div class="insurance-banner" onclick="handleFloatingButtonClick('bike')">
+  <img src="https://cms-img.coverfox.com/yamaha-removebg-preview.png" alt="bike" class="banner-icon" >
+  <div class="banner-content">
+    <span class="banner-message">Buy or Renew Bike Insurance - Premium Starting @ ₹457*</span>
+  </div>
+  <span class="banner-button">
+    Buy Now
+  </span>
+</div>
+`;
+    }
+
+    // Default Car structure
+    return `
+<div class='insurance-banner' onclick="handleFloatingButtonClick('car')">
+  <img src='https://cms-img.coverfox.com/red-car-cta-85x48.svg' alt='car' class='banner-icon'>
+  <div class='banner-content'>
+    <span class='banner-message'>Get your Car Insured online with Coverfox in minutes!</span>
+  </div>
+  <span class='banner-button'>View Plans</span>
+</div><br/>
+`;
+  };
+
   const buildJson = () => {
     if (!parsed) return {};
 
-    const defaultHeadExtras = `<style>.idv-table-wrapper{max-width:78%;margin:16px auto;font-family:Inter,system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;border:1px solid #e6eaf0;border-radius:8px;overflow:hidden;background:#fff}.idv-table{width:100%;border-collapse:collapse;table-layout:fixed}.idv-table thead th{background:#eef2ff;font-weight:700;font-size:16px;padding:12px 14px;color:#122433;border-bottom:1px solid #e6eaf0}.idv-table tbody td{padding:10px 14px;font-size:16px;color:#1f2937;border-bottom:1px solid #f0f2f5;word-break:break-word;text-align:center}.idv-table tbody tr:nth-child(even){background:#fafafa}p{text-align:justify}</style><script>function handleFloatingButtonClick(){if(window.widgetOpenOverlay){window.widgetOpenOverlay('bike')}}</script>`;
+    const faqCount = Math.min(parsed.faqs.length, 11);
+    const faqSection = `<h2><b>Frequently Asked Questions</b></h2>${Array.from(
+      { length: faqCount },
+      (_, i) =>
+        `<div data-cms-include='cms/components/faq-item.html' data-cms-namespace='cc${
+          i + 1
+        }'></div>`
+    ).join("")}`;
+
+    const placementRegex = /(?:<p>\s*)?--faqs-output--(?:\s*<\/p>)?/gi;
+    let finalHtml = "";
+    
+    if (parsed.content.match(placementRegex)) {
+      finalHtml = parsed.content.replace(placementRegex, faqSection);
+    } else {
+      finalHtml = parsed.content + faqSection;
+    }
+
+    const defaultHeadExtras = `<style>.idv-table-wrapper{max-width:78%;margin:16px auto;font-family:Inter,system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;border:1px solid #e6eaf0;border-radius:8px;overflow:hidden;background:#fff}.idv-table{width:100%;border-collapse:collapse;table-layout:fixed}.idv-table thead th{background:#eef2ff;font-weight:700;font-size:16px;padding:12px 14px;color:#122433;border-bottom:1px solid #e6eaf0}.idv-table tbody td{padding:10px 14px;font-size:16px;color:#1f2937;border-bottom:1px solid #f0f2f5;word-break:break-word;text-align:center}.idv-table tbody tr:nth-child(even){background:#fafafa}p{text-align:justify}</style><script>function handleFloatingButtonClick(type){if(window.widgetOpenOverlay){window.widgetOpenOverlay(type)}}</script>`;
 
     const json: any = {
       article_title: form.article_title || parsed.title,
-      article_intro: parsed.intro,
-      article_content: cleanHtml(parsed.content),
-
+      article_intro: form.article_intro || parsed.intro,
+      article_content: finalHtml,
       head_extras: form.head_extras || defaultHeadExtras,
       canonicalUrl: form.canonicalUrl || "",
 
