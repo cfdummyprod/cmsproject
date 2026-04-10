@@ -916,40 +916,42 @@ export default function CMSConverter() {
                 <ul className="space-y-2 list-none p-0">
                   <li className="flex gap-2"><code className="bg-white px-1 border border-blue-200 text-blue-600 rounded">--banner_car--</code> <span className="text-gray-600">Injects the wrapper-styled Car Insurance Banner.</span></li>
                   <li className="flex gap-2"><code className="bg-white px-1 border border-blue-200 text-blue-600 rounded">--banner_bike--</code> <span className="text-gray-600">Injects the buttons_CTA1 Bike Insurance Banner.</span></li>
-                  <li className="flex gap-2"><code className="bg-white px-1 border border-blue-200 text-blue-600 rounded">--faqs--</code> <span className="text-gray-600">Start manual FAQ extraction block.</span></li>
-                  <li className="flex gap-2"><code className="bg-white px-1 border border-blue-200 text-blue-600 rounded">--faqs ends--</code> <span className="text-gray-600">End manual FAQ extraction block.</span></li>
+                  <li className="flex gap-2"><code className="bg-white px-1 border border-blue-200 text-blue-600 rounded">--faqs--</code> <span className="text-gray-600">Start FAQ block (Place inside a <code>{"<p>"}</code> tag).</span></li>
+                  <li className="flex gap-2"><code className="bg-white px-1 border border-blue-200 text-blue-600 rounded">--faqs ends--</code> <span className="text-gray-600">End FAQ block (Place inside a <code>{"<p>"}</code> tag).</span></li>
                 </ul>
+              </div>
+              <div className="space-y-2">
+                <h3 className="font-bold text-blue-800">⚠️ Mandatory Fields</h3>
+                <p className="text-[11px] text-gray-500 mb-2 italic">Conversion will fail if these are empty:</p>
+                <ul className="space-y-1 list-none p-0 text-[12px]">
+                  <li className="flex items-center gap-2 text-gray-600"><span className="text-red-500 text-lg leading-none mt-1">*</span> Article & Meta Title</li>
+                  <li className="flex items-center gap-2 text-gray-600"><span className="text-red-500 text-lg leading-none mt-1">*</span> Image URL & Alt Text</li>
+                  <li className="flex items-center gap-2 text-gray-600"><span className="text-red-500 text-lg leading-none mt-1">*</span> Canonical & Meta Description</li>
+                </ul>
+                <h3 className="font-bold text-blue-800 pt-2">🖼️ Banners</h3>
+                <p className="text-[12px] text-gray-600 leading-tight">Customize banner text/CTA via <strong>Banner Customization</strong> in the form. If empty, official defaults are used.</p>
               </div>
               <div className="space-y-2">
                 <h3 className="font-bold text-blue-800">📄 Formatting</h3>
                 <ul className="space-y-2 list-none p-0">
                   <li className="flex items-start gap-2 text-gray-600">
                     <span className="text-blue-500 font-bold mt-1">✓</span>
-                    <span><strong>Lists:</strong> Single or grouped lists are auto-expanded into individual <code>{"<ul><li><p>"}</code> layers.</span>
+                    <span><strong>Lists:</strong> Grouped items are auto-expanded into <code>{"<ul><li><p>"}</code>.</span>
                   </li>
                   <li className="flex items-start gap-2 text-gray-600">
                     <span className="text-blue-500 font-bold mt-1">✓</span>
-                    <span><strong>Headings:</strong> H2 tags are auto-styled to <code>22px</code> in the final output.</span>
+                    <span><strong>Headings:</strong> H2 tags auto-styled to <code>22px</code>.</span>
                   </li>
                   <li className="flex items-start gap-2 text-gray-600">
                     <span className="text-blue-500 font-bold mt-1">✓</span>
-                    <span><strong>Tables:</strong> Automatically given the <code>idv-table</code> class and wrapped in a CSS container.</span>
+                    <span><strong>Schema:</strong> Generates FAQ & Table LD-JSON automatically.</span>
                   </li>
                 </ul>
               </div>
-              <div className="space-y-2">
-                <h3 className="font-bold text-blue-800">⚡ Advanced Logic</h3>
-                <ul className="space-y-2 list-none p-0">
-                  <li className="flex items-start gap-2 text-gray-600">
-                    <span className="text-blue-500 font-bold mt-1">✓</span>
-                    <span><strong>Schema:</strong> Generates FAQ LD-JSON and Table LD-JSON (if Table About text is provided).</span>
-                  </li>
-                  <li className="flex items-start gap-2 text-gray-600">
-                    <span className="text-blue-500 font-bold mt-1">✓</span>
-                    <span><strong>Cleanup:</strong> Strips redundant schemas and duplicate "FAQ" titles during ingestion.</span>
-                  </li>
-                </ul>
-              </div>
+            </div>
+            <div className="mt-4 p-3 bg-white/50 border border-blue-100 rounded text-xs text-blue-900 font-medium">
+              <span className="font-bold uppercase mr-2">Special Instruction:</span> 
+              Markers like <code>{"<p>--faqs--</p>"}</code> or <code>{"<p>--banner_car--</p>"}</code> must be enclosed in <code>{"<p>"}</code> tags for clean extraction.
             </div>
             <div className="mt-6 pt-4 border-t border-blue-100 flex justify-end">
               <Button size="sm" variant="ghost" onClick={() => setShowHelp(false)} className="text-blue-600 hover:text-blue-800">Close Guide</Button>
