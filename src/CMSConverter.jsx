@@ -177,7 +177,7 @@ function wrapTables(container) {
   });
 }
 
-function parseHtml(html) {
+function parseHtml(html, form = {}) {
   const parser = new DOMParser();
   const doc = parser.parseFromString(html, "text/html");
 
@@ -189,29 +189,23 @@ function parseHtml(html) {
   
   const getBannerHtml = (match) => {
     const isBike = match.includes('bike');
+    const msg = isBike 
+      ? (form.bike_msg || "Buy or Renew Bike Insurance - Premium Starting @ ₹457*")
+      : (form.car_msg || "Get your Car Insured online with Coverfox in minutes!");
+    const cta = isBike 
+      ? (form.bike_cta || "Buy Now")
+      : (form.car_cta || "View Plans");
+    const img = isBike
+      ? "https://cms-img.coverfox.com/yamaha-removebg-preview.png"
+      : "https://cms-img.coverfox.com/red-car-cta-85x48.svg";
     
-    if (isBike) {
-      return `
-<div class="insurance-banner" onclick="handleFloatingButtonClick('bike')">
-  <img src="https://cms-img.coverfox.com/yamaha-removebg-preview.png" alt="bike" class="banner-icon" >
-  <div class="banner-content">
-    <span class="banner-message">Buy or Renew Bike Insurance - Premium Starting @ ₹457*</span>
-  </div>
-  <span class="banner-button">
-    Buy Now
-  </span>
-</div>
-`;
-    }
-    
-    // Default Car structure
     return `
-<div class='insurance-banner' onclick="handleFloatingButtonClick('car')">
-  <img src='https://cms-img.coverfox.com/red-car-cta-85x48.svg' alt='car' class='banner-icon'>
+<div class='insurance-banner' onclick="handleFloatingButtonClick('${isBike ? 'bike' : 'car'}')">
+  <img src='${img}' alt='${isBike ? 'bike' : 'car'}' class='banner-icon'>
   <div class='banner-content'>
-    <span class='banner-message'>Get your Car Insured online with Coverfox in minutes!</span>
+    <span class='banner-message'>${msg}</span>
   </div>
-  <span class='banner-button'>View Plans</span>
+  <span class='banner-button'>${cta}</span>
 </div><br/>
 `;
   };
@@ -274,11 +268,15 @@ function parseHtml(html) {
 
 // ---------------- JsonViewer ----------------
 function JsonViewer({ data }) {
+  const [copied, setCopied] = useState(false);
+
   const handleCopy = async () => {
     const text = JSON.stringify(data, null, 2);
 
     try {
       await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
     } catch {
       const textarea = document.createElement("textarea");
       textarea.value = text;
@@ -286,14 +284,24 @@ function JsonViewer({ data }) {
       textarea.select();
       document.execCommand("copy");
       document.body.removeChild(textarea);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
     }
   };
 
   return (
     <Card>
       <CardContent className="p-4">
-        <Button className="mb-3" onClick={handleCopy}>
-          Copy JSON
+        <Button 
+          className={`mb-3 transition-all duration-300 ${copied ? 'bg-green-600 hover:bg-green-700' : ''}`} 
+          onClick={handleCopy}
+        >
+          {copied ? (
+            <span className="flex items-center gap-2">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path></svg>
+              Copied!
+            </span>
+          ) : "Copy JSON"}
         </Button>
 
         <pre className="overflow-x-auto bg-black text-green-400 p-4 rounded max-h-[400px]">
@@ -306,11 +314,11 @@ function JsonViewer({ data }) {
 
 // ---------------- Schema Generator ----------------
 function generateSchemas(parsed, form) {
-  if (!parsed) return {};
-  const schemas = {};
+  if (!parsed) return { hasError: false };
+  const schemas = { hasError: false };
 
   // Table Schema
-  const hasTable = parsed.content && parsed.content.includes("idv-table-wrapper");
+  const hasTable = parsed.content && (parsed.content.includes("idv-table-wrapper") || parsed.content.includes("idv-table"));
   if (hasTable && form.table_schema_about) {
     schemas.table = {
       "@context": "https://schema.org",
@@ -319,6 +327,7 @@ function generateSchemas(parsed, form) {
     };
   } else if (hasTable) {
     schemas.tableError = "Table detected in HTML, but 'Table Schema About Text' is missing. Schema will not be generated.";
+    schemas.hasError = true;
   }
 
   // FAQ Schema
@@ -483,6 +492,12 @@ function HtmlEditor({ html, faqs, schemas, onChange }) {
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"></path></svg>
           Schema Validator
+          {schemas?.hasError && (
+            <span className="absolute -top-1 -right-1 flex h-4 w-4">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-4 w-4 bg-red-600 text-[10px] text-white font-bold items-center justify-center shadow-sm">1</span>
+            </span>
+          )}
         </button>
       </div>
 
@@ -627,6 +642,60 @@ function CmsForm({ form, setForm }) {
           onChange={(e) => update("article_img_alt", e.target.value)}
         />
 
+        <div className="md:col-span-2 border-t pt-2 mt-2">
+          <p className="font-semibold text-sm mb-2 text-blue-600">Banner Customization</p>
+          <div className="grid md:grid-cols-2 gap-3">
+            <div className="flex flex-col gap-1">
+              <label className="text-[10px] font-bold text-gray-500 uppercase px-1 flex justify-between">
+                <span>Bike Banner Message</span>
+                <span className="text-[9px] lowercase font-normal italic">Default: Buy or Renew...</span>
+              </label>
+              <input
+                className="border p-2 text-sm"
+                placeholder="Message (e.g. Buy or Renew Bike Insurance...)"
+                value={form.bike_msg || ""}
+                onChange={(e) => update("bike_msg", e.target.value)}
+              />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-[10px] font-bold text-gray-500 uppercase px-1 flex justify-between">
+                <span>Bike Banner CTA</span>
+                <span className="text-[9px] lowercase font-normal italic">Default: Buy Now</span>
+              </label>
+              <input
+                className="border p-2 text-sm"
+                placeholder="CTA (e.g. Buy Now)"
+                value={form.bike_cta || ""}
+                onChange={(e) => update("bike_cta", e.target.value)}
+              />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-[10px] font-bold text-gray-500 uppercase px-1 flex justify-between">
+                <span>Car Banner Message</span>
+                <span className="text-[9px] lowercase font-normal italic">Default: Get your Car...</span>
+              </label>
+              <input
+                className="border p-2 text-sm"
+                placeholder="Message (e.g. Get your Car Insured...)"
+                value={form.car_msg || ""}
+                onChange={(e) => update("car_msg", e.target.value)}
+              />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-[10px] font-bold text-gray-500 uppercase px-1 flex justify-between">
+                <span>Car Banner CTA</span>
+                <span className="text-[9px] lowercase font-normal italic">Default: View Plans</span>
+              </label>
+              <input
+                className="border p-2 text-sm"
+                placeholder="CTA (e.g. View Plans)"
+                value={form.car_cta || ""}
+                onChange={(e) => update("car_cta", e.target.value)}
+              />
+            </div>
+          </div>
+        </div>
+
         <input
           className="border p-2"
           placeholder="Canonical URL"
@@ -667,8 +736,35 @@ export default function CMSConverter() {
   const [form, setForm] = useState({});
   const [showHelp, setShowHelp] = useState(false);
 
+  const [toast, setToast] = useState(null);
+
+  const showToast = (message) => {
+    setToast(message);
+    setTimeout(() => setToast(null), 5000);
+  };
+
   const handleConvert = () => {
-    const result = parseHtml(inputHtml);
+    // 1. Mandatory Field Validation
+    const required = {
+      article_title: "Article Title",
+      meta_title: "Meta Title",
+      article_img: "Article Image URL",
+      article_img_alt: "Article Image Alt",
+      canonicalUrl: "Canonical URL",
+      meta_descr: "Meta Description",
+    };
+
+    const missing = Object.entries(required)
+      .filter(([key]) => !form[key])
+      .map(([_, label]) => label);
+
+    if (missing.length > 0) {
+      showToast(`Missing required fields: ${missing.join(", ")}`);
+      return;
+    }
+
+    // 2. Proceed with conversion
+    const result = parseHtml(inputHtml, form);
     result.id = Date.now();
     setParsed(result);
   };
@@ -888,6 +984,19 @@ export default function CMSConverter() {
           />
           <JsonViewer data={buildJson()} />
         </>
+      )}
+
+      {/* Toast Notification Container */}
+      {toast && (
+        <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-[100] animate-in slide-in-from-bottom-4 duration-300">
+          <div className="bg-red-600 text-white px-6 py-3 rounded-xl shadow-2xl flex items-center gap-3 border border-red-400">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+            <span className="font-medium">{toast}</span>
+            <button onClick={() => setToast(null)} className="ml-2 hover:bg-white/20 p-1 rounded transition-colors">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+            </button>
+          </div>
+        </div>
       )}
     </div>
   );
