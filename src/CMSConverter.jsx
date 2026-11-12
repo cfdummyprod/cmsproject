@@ -4,6 +4,7 @@
 import { useState, useRef } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { AUTHORS } from "@/authors";
 
 // ---------------- utils/htmlCleaner ----------------
 function cleanHtml(html) {
@@ -13,6 +14,39 @@ function cleanHtml(html) {
     .replace(/[ \t]{2,}/g, " ")
     .trim();
 }
+
+// ---------------- utils/authorBio ----------------
+const AUTHOR_MARKER_REGEX = /(?:<p>\s*)?--author--(?:\s*<\/p>)?/gi;
+const AUTHOR_REQUIRED = {
+  author_name: "Author Name",
+  author_designation: "Author Designation",
+  author_img: "Author Photo URL",
+  author_bio: "Author Bio",
+};
+
+function escapeHtml(str = "") {
+  return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function missingAuthorFields(form) {
+  return Object.entries(AUTHOR_REQUIRED)
+    .filter(([key]) => !form[key]?.trim())
+    .map(([, label]) => label);
+}
+
+// Uses <div>s rather than <p>s so the site's global `.art-content p` rules don't override the card styling.
+function getAuthorHtml(form) {
+  const label = escapeHtml(form.author_label?.trim() || "Written by");
+  const name = escapeHtml(form.author_name?.trim());
+  return `<div class='cf-author-bio'><img src='${escapeHtml(form.author_img?.trim())}' alt='${name}' class='cf-author-img' loading='lazy'><div class='cf-author-info'><div class='cf-author-label'>${label}</div><div class='cf-author-name'>${name}</div><div class='cf-author-role'>${escapeHtml(form.author_designation?.trim())}</div><div class='cf-author-text'>${escapeHtml(form.author_bio?.trim())}</div></div></div>`;
+}
+
+const AUTHOR_CSS = `.cf-author-bio{display:flex;gap:16px;align-items:flex-start;max-width:690px;margin:24px auto;padding:18px 20px;border:1px solid #e6eaf0;border-left:4px solid rgb(251,100,27);background:#f8fafc;box-sizing:border-box;font-family:Inter,system-ui,-apple-system,'Segoe UI',Roboto,Arial,sans-serif}.cf-author-img{width:72px !important;height:72px !important;min-width:72px;border-radius:50%;object-fit:cover;margin:0 !important}.cf-author-info{flex:1;min-width:0}.cf-author-label{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:#6b7280;margin:0 0 2px}.cf-author-name{font-size:18px;font-weight:700;color:rgb(49,68,81)}.cf-author-role{font-size:14px;font-weight:600;color:rgb(251,100,27);margin:2px 0 8px}.cf-author-text{font-size:15px;line-height:1.6;color:#1f2937;text-align:left}@media (max-width:600px){.cf-author-bio{flex-direction:column;align-items:center;text-align:center}.cf-author-text{text-align:center}}`;
 
 // ---------------- utils/faqExtractor ----------------
 function extractFaqs(container) {
@@ -212,6 +246,9 @@ function parseHtml(html, form = {}) {
 
   container.innerHTML = container.innerHTML.replace(bannerRegex, (match) => getBannerHtml(match));
 
+  // Replace --author-- marker with the author bio card
+  container.innerHTML = container.innerHTML.replace(AUTHOR_MARKER_REGEX, () => getAuthorHtml(form));
+
   // Remove existing JSON-LD schemas to prevent duplicate stacking when re-pasting
   container.querySelectorAll("script[type='application/ld+json']").forEach(s => s.remove());
 
@@ -330,6 +367,25 @@ function generateSchemas(parsed, form) {
     schemas.hasError = true;
   }
 
+  // Author (Person) Schema
+  if (parsed.content && parsed.content.includes("cf-author-bio")) {
+    const missing = missingAuthorFields(form);
+    if (missing.length === 0) {
+      schemas.author = {
+        "@context": "https://schema.org",
+        "@type": "Person",
+        "name": form.author_name.trim(),
+        "jobTitle": form.author_designation.trim(),
+        "image": form.author_img.trim(),
+        "description": form.author_bio.trim(),
+        "worksFor": { "@type": "Organization", "name": "Coverfox" }
+      };
+    } else {
+      schemas.authorError = `Author card found, but these fields are empty: ${missing.join(", ")}. Schema will not be generated.`;
+      schemas.hasError = true;
+    }
+  }
+
   // FAQ Schema
   if (parsed.faqs && parsed.faqs.length > 0) {
     const faqCount = Math.min(parsed.faqs.length, 11);
@@ -373,7 +429,7 @@ function generateSchemas(parsed, form) {
 }
 
 // ---------------- HtmlEditor ----------------
-function HtmlEditor({ html, faqs, schemas, onChange }) {
+function HtmlEditor({ html, faqs, schemas, form, onChange }) {
   const ref = useRef(null);
   const [activeTab, setActiveTab] = useState("visual");
   const [textModeHtml, setTextModeHtml] = useState(html);
@@ -435,6 +491,21 @@ function HtmlEditor({ html, faqs, schemas, onChange }) {
     if (ref.current) {
       ref.current.focus();
       document.execCommand("insertHTML", false, bannerHtml);
+      handleChange();
+    }
+  };
+
+  const addAuthor = (e) => {
+    e.preventDefault();
+    if (activeTab !== "visual") return;
+    const missing = missingAuthorFields(form || {});
+    if (missing.length > 0) {
+      alert(`Pick an author in the "Author Bio" section first. Missing: ${missing.join(", ")}`);
+      return;
+    }
+    if (ref.current) {
+      ref.current.focus();
+      document.execCommand("insertHTML", false, getAuthorHtml(form));
       handleChange();
     }
   };
@@ -513,6 +584,7 @@ function HtmlEditor({ html, faqs, schemas, onChange }) {
            <EditorButton onMouseDown={(e) => exec(e, "formatBlock", "p")}>P</EditorButton>
            <EditorButton onMouseDown={addLink} className="underline text-[#2271b1]">Link</EditorButton>
            <EditorButton onMouseDown={addBanner} className="font-bold text-[#fb641b]">Banner</EditorButton>
+           <EditorButton onMouseDown={addAuthor} className="font-bold text-[#314451]">Author</EditorButton>
         </div>
         
         {/* Toolbar for Text Mode */}
@@ -527,7 +599,7 @@ function HtmlEditor({ html, faqs, schemas, onChange }) {
              <div className="p-4 min-h-[300px] bg-[#f0f0f1] text-[#3c434a] max-w-none text-[14px]">
                <h3 className="font-bold text-lg mb-4 text-[#2271b1]">Schema.org Validator Preview</h3>
                
-               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                  {/* Table Schema */}
                  <div className="bg-white border shadow-sm rounded overflow-hidden">
                    <div className={`p-2 font-bold text-white ${schemas?.table ? 'bg-green-600' : schemas?.tableError ? 'bg-red-500' : 'bg-gray-500'}`}>
@@ -540,6 +612,22 @@ function HtmlEditor({ html, faqs, schemas, onChange }) {
                        </pre>
                      ) : (
                        <p className="text-sm text-gray-500">{schemas?.tableError || "No tables detected in the HTML."}</p>
+                     )}
+                   </div>
+                 </div>
+
+                 {/* Author Schema */}
+                 <div className="bg-white border shadow-sm rounded overflow-hidden">
+                   <div className={`p-2 font-bold text-white ${schemas?.author ? 'bg-green-600' : schemas?.authorError ? 'bg-red-500' : 'bg-gray-500'}`}>
+                      Author Schema {schemas?.author ? '✓ Valid' : schemas?.authorError ? '⚠ Error' : '(Not Found)'}
+                   </div>
+                   <div className="p-4">
+                     {schemas?.author ? (
+                       <pre className="text-xs bg-gray-50 p-2 border rounded overflow-x-auto text-green-700 whitespace-pre-wrap">
+                         {JSON.stringify(schemas.author, null, 2)}
+                       </pre>
+                     ) : (
+                       <p className="text-sm text-gray-500">{schemas?.authorError || "No author card in the HTML. Add --author-- or use the Author button."}</p>
                      )}
                    </div>
                  </div>
@@ -609,6 +697,19 @@ function HtmlEditor({ html, faqs, schemas, onChange }) {
 function CmsForm({ form, setForm }) {
   const update = (key, value) => {
     setForm({ ...form, [key]: value });
+  };
+
+  // Picking a team author fills the fields below (still editable for one-off tweaks)
+  const selectAuthor = (id) => {
+    const author = AUTHORS.find((a) => a.id === id);
+    setForm({
+      ...form,
+      author_id: id,
+      author_name: author?.name || "",
+      author_designation: author?.designation || "",
+      author_img: author?.img || "",
+      author_bio: author?.bio || "",
+    });
   };
 
   return (
@@ -696,6 +797,61 @@ function CmsForm({ form, setForm }) {
           </div>
         </div>
 
+        <div className="md:col-span-2 border-t pt-2 mt-2">
+          <p className="font-semibold text-sm mb-2 text-blue-600">
+            Author Bio <span className="text-[11px] font-normal text-gray-500">(used where you place <code>--author--</code> or click the Author button)</span>
+          </p>
+          <div className="grid md:grid-cols-2 gap-3">
+            <div className="flex flex-col gap-1 md:col-span-2">
+              <label className="text-[10px] font-bold text-gray-500 uppercase px-1">Select Author</label>
+              <select
+                className="border p-2 text-sm bg-white"
+                value={form.author_id || ""}
+                onChange={(e) => selectAuthor(e.target.value)}
+              >
+                <option value="">— No author —</option>
+                {AUTHORS.map((a) => (
+                  <option key={a.id} value={a.id}>{a.name} — {a.designation}</option>
+                ))}
+                <option value="custom">Custom / Guest author…</option>
+              </select>
+            </div>
+
+            {form.author_id && (
+              <>
+                <div className="flex flex-col gap-1">
+                  <label className="text-[10px] font-bold text-gray-500 uppercase px-1">Author Name</label>
+                  <input className="border p-2 text-sm" placeholder="Priya Sharma" value={form.author_name || ""} onChange={(e) => update("author_name", e.target.value)} />
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label className="text-[10px] font-bold text-gray-500 uppercase px-1">Designation</label>
+                  <input className="border p-2 text-sm" placeholder="Senior Content Writer" value={form.author_designation || ""} onChange={(e) => update("author_designation", e.target.value)} />
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label className="text-[10px] font-bold text-gray-500 uppercase px-1">Photo URL</label>
+                  <input className="border p-2 text-sm" placeholder="https://cms-img.coverfox.com/..." value={form.author_img || ""} onChange={(e) => update("author_img", e.target.value)} />
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label className="text-[10px] font-bold text-gray-500 uppercase px-1 flex justify-between">
+                    <span>Card Label</span>
+                    <span className="text-[9px] lowercase font-normal italic">Default: Written by</span>
+                  </label>
+                  <input className="border p-2 text-sm" placeholder="Written by" value={form.author_label || ""} onChange={(e) => update("author_label", e.target.value)} />
+                </div>
+                <div className="flex flex-col gap-1 md:col-span-2">
+                  <label className="text-[10px] font-bold text-gray-500 uppercase px-1">Bio</label>
+                  <textarea className="border p-2 text-sm" rows={3} placeholder="2–3 sentences about the author" value={form.author_bio || ""} onChange={(e) => update("author_bio", e.target.value)} />
+                </div>
+                <div className="md:col-span-2">
+                  <p className="text-[10px] font-bold text-gray-500 uppercase px-1 mb-1">Card Preview</p>
+                  <style>{AUTHOR_CSS}</style>
+                  <div className="bg-white border rounded p-2" dangerouslySetInnerHTML={{ __html: getAuthorHtml(form) }} />
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+
         <input
           className="border p-2"
           placeholder="Canonical URL"
@@ -763,6 +919,15 @@ export default function CMSConverter() {
       return;
     }
 
+    // Author fields are only required when the article uses the --author-- marker
+    if (/--author--/i.test(inputHtml)) {
+      const missingAuthor = missingAuthorFields(form);
+      if (missingAuthor.length > 0) {
+        showToast(`--author-- found. Select an author or fill: ${missingAuthor.join(", ")}`);
+        return;
+      }
+    }
+
     // 2. Proceed with conversion
     const result = parseHtml(inputHtml, form);
     result.id = Date.now();
@@ -786,7 +951,8 @@ export default function CMSConverter() {
     const newStyles = `.art-content p,.art-content .art-content__intro>*,h3,h4,.art-content ol>li{font-family:Inter,system-ui,-apple-system,'Segoe UI',Roboto,Arial,sans-serif !important;color:#1f2937 !important;font-size:16px !important;letter-spacing:0.019em;word-spacing:1px}h1{font-family:Inter,system-ui,-apple-system,'Segoe UI',Roboto,Arial,sans-serif !important;font-size:32px !important}h2{font-family:Inter,system-ui,-apple-system,'Segoe UI',Roboto,Arial,sans-serif !important;font-size:23px !important}.cfHeroBG__category{font-family:Inter,system-ui,-apple-system,'Segoe UI',Roboto,Arial,sans-serif !important}.faq__question h3{font-size:18px;line-height:2px;margin:12px 0;word-break:break-word}@media (max-width:600px){.faq__question h3{font-size:23px;line-height:23px}}@media screen and (min-width:768px){div[data-cms-namespace='bannerCTA'] .banner-container.cta-banner-v2{width:690px}}.insurance-banner{display:flex;align-items:center;justify-content:space-between;background:rgb(49,68,81);color:#fff;padding:0 16px;border-radius:8px;font-family:sans-serif;max-width:690px;width:100%;margin:0 auto;box-sizing:border-box;flex-wrap:wrap;gap:12px}.banner-icon{width:91px;height:71px;margin-bottom:-2px !important}.banner-content{flex:1;min-width:0}.banner-message{font-size:16px;line-height:1.4;word-break:break-word;margin-left:0}.banner-button{background:rgb(251,100,27);border:none;color:#fff;padding:8px 14px;border-radius:16px;font-weight:bold;text-decoration:none;font-size:15px;white-space:nowrap;flex-shrink:0;transition:background .3s ease}.banner-button:hover{background:rgb(230,85,20)}@media (max-width:768px){.insurance-banner{flex-direction:column;align-items:flex-start;text-align:left}.banner-content{width:100%}.banner-button{width:100%;text-align:center;font-size:13px;padding:8px}}@media (max-width:480px){.banner-message{font-size:14px}.insurance-banner{flex-direction:column;align-items:flex-start;text-align:left;width:100%;padding-bottom:10px;margin-top:-5px}.banner-content{margin-top:-118px}img.banner-icon{width:42% !important;padding-top:-8px;height:1%;margin-bottom:7px !important}.banner-icon{width:28px;height:28px}.banner-message{display:inline-grid;font-size:19px;margin-top:0;padding-left:161px}.banner-button{margin-left:154px;width:181px;font-size:14px;padding:7px 35px}}`;
 
     const hasTable = parsed.content.includes("idv-table");
-    const baseCss = `p{text-align:justify}${newStyles}${hasTable ? tableStyles : ""}`;
+    const hasAuthor = parsed.content.includes("cf-author-bio");
+    const baseCss = `p{text-align:justify}${newStyles}${hasTable ? tableStyles : ""}${hasAuthor ? AUTHOR_CSS : ""}`;
 
     const carScript = `<script>document.addEventListener("click",function(e){const banner=e.target.closest(".insurance-banner[data-click='handleFloatingButtonClick']");if(banner){if(window.handleFloatingButtonClick){window.handleFloatingButtonClick('car')}else if(window.widgetOpenOverlay){window.widgetOpenOverlay('car')}}});</script>`;
     const bikeScript = `<script>document.addEventListener('DOMContentLoaded', function () { const ctaButtons = document.querySelectorAll('.buttons_CTA1'); ctaButtons.forEach(function (button) { button.style.cursor = 'pointer'; button.addEventListener('click', function () { if (window.widgetOpenOverlay) { window.widgetOpenOverlay('bike'); } }); }); });</script>`;
@@ -823,6 +989,23 @@ export default function CMSConverter() {
         scriptEl.type = "application/ld+json";
         scriptEl.textContent = JSON.stringify(generatedSchemas.table);
         tableWrapper.parentNode.insertBefore(scriptEl, tableWrapper.nextSibling);
+      }
+    }
+
+    // Re-render every author card from the current form, so changing the dropdown after
+    // converting updates the output without re-converting (and losing editor changes).
+    const authorCards = exportDiv.querySelectorAll(".cf-author-bio");
+    if (authorCards.length > 0 && missingAuthorFields(form).length === 0) {
+      authorCards.forEach((card) => { card.outerHTML = getAuthorHtml(form); });
+    }
+
+    if (generatedSchemas.author) {
+      const authorCard = exportDiv.querySelector(".cf-author-bio");
+      if (authorCard) {
+        const scriptEl = document.createElement("script");
+        scriptEl.type = "application/ld+json";
+        scriptEl.textContent = JSON.stringify(generatedSchemas.author);
+        authorCard.parentNode.insertBefore(scriptEl, authorCard.nextSibling);
       }
     }
 
@@ -916,6 +1099,7 @@ export default function CMSConverter() {
                 <ul className="space-y-2 list-none p-0">
                   <li className="flex gap-2"><code className="bg-white px-1 border border-blue-200 text-blue-600 rounded">--banner_car--</code> <span className="text-gray-600">Injects the wrapper-styled Car Insurance Banner.</span></li>
                   <li className="flex gap-2"><code className="bg-white px-1 border border-blue-200 text-blue-600 rounded">--banner_bike--</code> <span className="text-gray-600">Injects the buttons_CTA1 Bike Insurance Banner.</span></li>
+                  <li className="flex gap-2"><code className="bg-white px-1 border border-blue-200 text-blue-600 rounded">--author--</code> <span className="text-gray-600">Injects the Author Bio card + Person schema for the author picked in the form.</span></li>
                   <li className="flex gap-2"><code className="bg-white px-1 border border-blue-200 text-blue-600 rounded">--faqs--</code> <span className="text-gray-600">Start FAQ block (Place inside a <code>{"<p>"}</code> tag).</span></li>
                   <li className="flex gap-2"><code className="bg-white px-1 border border-blue-200 text-blue-600 rounded">--faqs ends--</code> <span className="text-gray-600">End FAQ block (Place inside a <code>{"<p>"}</code> tag).</span></li>
                 </ul>
@@ -982,7 +1166,8 @@ export default function CMSConverter() {
             html={parsed.content} 
             faqs={parsed.faqs} 
             schemas={generateSchemas(parsed, form)}
-            onChange={updateContent} 
+            form={form}
+            onChange={updateContent}
           />
           <JsonViewer data={buildJson()} />
         </>
